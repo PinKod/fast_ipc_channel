@@ -28,11 +28,11 @@ add_compile_options(${MAX_OPT_FLAGS})
 add_link_options(-flto -static -no-pie)
 
 add_executable(
-    ${PROJECT_NAME}_producer
+    producer
     producer.c
 )
 
 add_executable(
-    ${PROJECT_NAME}_consumer
+    consumer
     consumer.c
 )
