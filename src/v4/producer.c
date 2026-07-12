@@ -1,0 +1,109 @@
+#include "shm.h"
+
+#include <stdio.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <string.h>
+
+
+#if defined(__x86_64__) || defined(__i386__)
+    #define cpu_relax() __asm__ volatile("pause\n": : :"memory")
+#elif defined(__aarch64__)
+    #define cpu_relax() __asm__ volatile("yield\n": : :"memory")
+#else
+    #define cpu_relax() do {} while(0)
+#endif
+
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+
+static int producer(const char* shm_path, const char* file_path);
+
+
+
+
+int main(int argc, char* argv[]) {
+    if(argc != 3) return 1;
+    
+    const char* shm_path = argv[1];
+    const char* file_path = argv[2];
+    if(producer(shm_path, file_path) != 0) return 1;
+
+    return 0;
+}
+
+
+
+
+static int producer(const char* shm_path, const char* file_path) {
+    int fd = open(file_path, O_RDONLY);
+    if(fd == -1) return 1;
+
+    struct stat st;
+    if(unlikely(stat(file_path, &st)) == -1) {
+        close(fd);
+        return 1;
+    }
+
+    size_t file_size = st.st_size;
+    char* file_mapping = NULL;
+    if (file_size > 0) {
+        file_mapping = (char *)mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (file_mapping == MAP_FAILED) {
+            close(fd);
+            return 1;
+        }
+    }
+
+    int shm_fd = shm_open(shm_path, O_CREAT | O_RDWR, 0666);
+    if(unlikely(shm_fd == -1)) {
+        close(fd);
+        return 1;
+    }
+
+    ftruncate(shm_fd, sizeof(shm_data));
+    shm_data *shm = (shm_data *)mmap(NULL, sizeof(shm_data), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if(unlikely(shm == MAP_FAILED)) {
+        close(fd);
+        close(shm_fd);
+        return 1;
+    }
+
+    *(size_t*)(shm->data) = file_size;
+    atomic_store_explicit(&shm->state, STATE_INIT, memory_order_release);
+    while (atomic_load_explicit(&shm->state, memory_order_acquire) != STATE_EMPTY) {
+        cpu_relax();
+    }
+
+    atomic_init(&shm->state, STATE_EMPTY);
+    size_t offset = 0;
+    while (offset < file_size) {
+        while (atomic_load_explicit(&shm->state, memory_order_acquire) == STATE_FULL) {
+            cpu_relax();
+        }
+
+        size_t chunk_size = SHM_DATA_SIZE;
+        if(offset + chunk_size > file_size) {
+            chunk_size = file_size - offset;
+        }
+        memcpy(shm->data, file_mapping + offset, chunk_size);
+        atomic_store_explicit(&shm->wr_bytes, chunk_size, memory_order_relaxed);
+        atomic_store_explicit(&shm->state, STATE_FULL, memory_order_release);
+        offset += chunk_size;
+    }
+    while (atomic_load_explicit(&shm->state, memory_order_acquire) != STATE_EMPTY) {
+        cpu_relax();
+    }
+
+    atomic_store_explicit(&shm->state, STATE_EOF, memory_order_release);
+    if(file_mapping) {
+        munmap(file_mapping, file_size);
+    }
+    munmap(shm, sizeof(shm_data));
+    close(fd);
+    close(shm_fd);
+    return 0;
+}
