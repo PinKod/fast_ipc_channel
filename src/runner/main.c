@@ -18,19 +18,19 @@
 typedef struct {
     int core_id;
     char* prog_path;
-    char* shm_name;
-    char* file_path;
     double elapsed_time;
     pid_t pid;
     pthread_barrier_t *barrier;
+    char** exec_args;
 } pthr_argv;
 
-static int cores[3] = {-1, -1, -1};
+static int cores[2] = {-1, -1};
+static int prod_idx = -1;
+static int cons_idx = -1;
 
 static int validate_args(int argc, char* argv[]);
 static int check_exec(char* path, char* substr);
 static int check_cpu_cores(char* cores_str);
-static int pin_thread(int cpu_core);
 static int spanw_procs(char* argv[]);
 static void* run_proc(void* arg);
 void get_output_path(char* out_path, size_t size, const char* in_path);
@@ -44,8 +44,7 @@ int main(int argc, char* argv[]) {
     if(validate_args(argc, argv) != 0) {
         fprintf(stderr, "invalid args\n");
         return 1;
-    } 
-    if(pin_thread(cores[0]) != 0) return 1;
+    }
     if(spanw_procs(argv) != 0) return 1;
     char out_path[512];
     get_output_path(out_path, sizeof(out_path), argv[1]);
@@ -62,14 +61,14 @@ int main(int argc, char* argv[]) {
 
 static void* run_proc(void* arg) {
     pthr_argv* args = (pthr_argv*)arg;
-    if (pin_thread(args->core_id) != 0) return NULL;
 
     args->pid = fork();
     if (args->pid < 0) return NULL;
 
     if (args->pid == 0) {
         raise(SIGSTOP);
-        execl(args->prog_path, args->prog_path, args->shm_name, args->file_path, (char*)NULL);
+        execvp(args->exec_args[0], args->exec_args);
+        perror("execvp failed");
         _exit(126);
     }
 
@@ -98,42 +97,59 @@ static void* run_proc(void* arg) {
     return NULL;
 }
 
+static char** build_exec_args(int start_idx, int bin_idx, char* shm_name, char* file_path, char* core_str, char* original_argv[]) {
+    int num_args = (bin_idx - start_idx) + 5;
+    char** exec_args = malloc(num_args * sizeof(char*));
+    int k = 0;
+    for (int i = start_idx; i < bin_idx; i++) exec_args[k++] = original_argv[i];
+    exec_args[k++] = original_argv[bin_idx];
+    exec_args[k++] = shm_name;
+    exec_args[k++] = file_path;
+    exec_args[k++] = core_str;
+    exec_args[k] = NULL;
+    return exec_args;
+}
+
 static int spanw_procs(char* argv[]) {
     pthread_barrier_t barrier;
     if (pthread_barrier_init(&barrier, NULL, 2) != 0) return 1;
 
-    pthr_argv args1 = {cores[1], argv[2], argv[5], argv[1], 0.0, -1, &barrier};
-    pthr_argv args2 = {cores[2], argv[3], argv[5], argv[1], 0.0, -1, &barrier};
+    char* shm_name = argv[cons_idx + 2];
+    char* file_path = argv[1];
+    char prod_core_str[16];
+    char cons_core_str[16];
+    snprintf(prod_core_str, sizeof(prod_core_str), "%d", cores[0]);
+    snprintf(cons_core_str, sizeof(cons_core_str), "%d", cores[1]);
+    char** prod_args = build_exec_args(2, prod_idx, shm_name, file_path, prod_core_str, argv);
+    char** cons_args = build_exec_args(prod_idx + 1, cons_idx, shm_name, file_path, cons_core_str, argv);
+
+    pthr_argv args1 = {cores[0], argv[prod_idx], 0.0, -1, &barrier, prod_args};
+    pthr_argv args2 = {cores[1], argv[cons_idx], 0.0, -1, &barrier, cons_args};
     pthread_t t1, t2;
     if (pthread_create(&t1, NULL, run_proc, &args1) != 0) {
         pthread_barrier_destroy(&barrier);
+        free(prod_args); free(cons_args);
         return 1;
     }
     if (pthread_create(&t2, NULL, run_proc, &args2) != 0) {
         pthread_cancel(t1);
         pthread_join(t1, NULL);
         pthread_barrier_destroy(&barrier);
+        free(prod_args); free(cons_args);
         return 1;
     }
 
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
     pthread_barrier_destroy(&barrier);
-    printf("\n%s (Core %d) time: %.6f seconds\n", argv[2], cores[1], args1.elapsed_time);
-    printf("%s (Core %d) time: %.6f seconds\n", argv[3], cores[2], args2.elapsed_time);
+    free(prod_args); free(cons_args);
+    printf("\n%s (Core %d) time: %.6f seconds\n", argv[prod_idx], cores[0], args1.elapsed_time);
+    printf("%s (Core %d) time: %.6f seconds\n", argv[cons_idx], cores[1], args2.elapsed_time);
     return 0;
 }
 
-static int pin_thread(int cpu_core) {
-    cpu_set_t mask;
-    CPU_ZERO(&mask);
-    CPU_SET(cpu_core, &mask);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &mask) == -1) return 1;
-    return 0;
-}
-
-static int validate_args(int argc, char* argv[]) { 
-    if(argc != ARGV_NUM) return 1;
+static int validate_args(int argc, char* argv[]) {
+    if(argc < 6) return 1;
 
     struct stat st1;
     if(stat(argv[1], &st1) != 0 || st1.st_size == 0) {
@@ -141,26 +157,29 @@ static int validate_args(int argc, char* argv[]) {
         return 1;
     }
 
-    if(check_exec(argv[2], PROD) != 0 || check_exec(argv[3], CONS) != 0) {
-        fprintf(stderr, "%s or %s not executable\n", argv[2], argv[3]);
+    for (int i = 2; i < argc - 2; i++) {
+        if (prod_idx == -1 && check_exec(argv[i], PROD) == 0) {
+            prod_idx = i;
+        } else if (prod_idx != -1 && cons_idx == -1 && check_exec(argv[i], CONS) == 0) {
+            cons_idx = i;
+            break;
+        }
+    }
+
+    if (prod_idx == -1 || cons_idx == -1) {
+        fprintf(stderr, "Could not locate valid producer or consumer binaries in arguments\n");
         return 1;
     }
 
-    if(check_cpu_cores(argv[4]) != 0) return 1;
+    if (argc != cons_idx + 3) {
+        fprintf(stderr, "Invalid trailing arguments\n");
+        return 1;
+    }
 
-    if(strlen(argv[5]) == 0) return 1;
+    if(check_cpu_cores(argv[cons_idx + 1]) != 0) return 1;
+    if(strlen(argv[cons_idx + 2]) == 0) return 1;
+    if (strchr(argv[cons_idx + 2], '/') != NULL) return 1;
 
-    if (strchr(argv[5], '/') != NULL) return 1;
-
-    // char shm_file[512];
-    // const char* shm_path = "/dev/shm/";
-    // size_t prefix_len = strlen(shm_path);
-    // if (strlen(argv[5]) >= sizeof(shm_file) - prefix_len) return 1;
-
-    // snprintf(shm_file, sizeof(shm_file), "%s%s", shm_path, argv[5]);
-    // struct stat st2;
-    // if(stat(shm_file, &st2) == 0) return 1;
-    
     return 0;
 }
 
@@ -186,25 +205,25 @@ static int check_exec(char* path, char* substr) {
 static int check_cpu_cores(char* cores_str) {
     char *ptr = (char*)cores_str;
     char *endptr;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         if (i > 0) {
             if (*ptr != ',') return 1;
             ptr++;
         }
         long val = strtol(ptr, &endptr, 10);
-        if (ptr == endptr) return 1; 
-        if (val < 0) return 1;       
+        if (ptr == endptr) return 1;
+        if (val < 0) return 1;
         cores[i] = (int)val;
         ptr = endptr;
     }
-    if (*ptr != '\0') return 1; 
-    if (cores[0] == cores[1] || cores[0] == cores[2] || cores[1] == cores[2]) {
+    if (*ptr != '\0') return 1;
+    if (cores[0] == cores[1]) {
         return 1;
     }
     long max_cores = sysconf(_SC_NPROCESSORS_CONF);
     if (max_cores <= 0) return 1;
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         if (cores[i] >= max_cores) {
             return 1;
         }

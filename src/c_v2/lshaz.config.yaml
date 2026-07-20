@@ -1,0 +1,16 @@
+# lshaz configuration
+# See: https://github.com/abokhalill/lshaz/blob/main/docs/configuration.md
+
+cache_line_bytes: 64
+stack_frame_warn_bytes: 2048
+
+# Mark hot functions by pattern (fnmatch glob)
+# hot_function_patterns:
+#   - "*::onMarketData*"
+#   - "*::process*"
+
+# hot_file_patterns:
+#   - "*/hot_path/*"
+
+# Disable specific rules
+# disabled_rules: []

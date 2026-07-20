@@ -1,8 +1,14 @@
 # args
-runner "path to data file" "path to producer" "path to consumer" "cpu cores(3) sep with ','" "shm name"
+runner "path to data file" "path to producer" "path to consumer" "cpu cores(2) sep with ','" "shm name"
+
+The runner itself is not pinned to any core; the two cores given are the producer's and
+consumer's own core, respectively. Each of producer/consumer pins its main thread to the
+core it's given, and may pin a second/helper thread to `core + 1` (via `cpu_utils.h`'s
+`pin_current_thread`/`get_current_cpu_core`), so pick core ids that leave each pair's
+`core`/`core + 1` mapped to independent physical cores (check `lstopo` for SMT sibling pairs).
 
 ## prod/cons args
-producer/consumer "shm name" "path to data file"
+producer/consumer "shm name" "path to data file" "cpu core id"
 
 
 
@@ -25,9 +31,9 @@ flowchart TD
     J --> K{" Valid executable?"}
     K -->|No| D
     K -->|Yes| L["check_cpu_cores(argv[4])"]
-    L --> M{" Parse 3 cores?"}
+    L --> M{" Parse 2 cores?"}
     M -->|No| D
-    M -->|Yes| N{" All cores unique?"}
+    M -->|Yes| N{" Cores unique?"}
     N -->|No| D
     N -->|Yes| O{" Cores valid?"}
     O -->|No| D
@@ -38,11 +44,7 @@ flowchart TD
     Q -->|No| R{" shm_name already exists?"}
     R -->|Yes| D
     R -->|No| S["Return 0"]
-    S --> T["pin_thread(cores[0])"]
-    D --> U{" Pin successful?"}
-    U -->|No| V["Return 1"]
-    U -->|Yes| W["Call spanw_procs()"]
-    T --> W
+    S --> W["Call spanw_procs()"]
     W --> X["Initialize barrier"]
     X --> Y{" Barrier init ok?"}
     Y -->|No| Z["Return 1"]
@@ -60,7 +62,6 @@ flowchart TD
     AK --> AL["Return 0"]
     
     subgraph "run_proc() - Thread Function"
-        AM["pin_thread(core_id)"]
         AN["fork() child process"]
         AO{" Fork ok?"}
         AP["Send SIGSTOP to child"]
@@ -76,7 +77,6 @@ flowchart TD
         AZ["Return NULL"]
     end
     
-    AM --> AN
     AN --> AO
     AO -->|Error| AZ
     AO -->|Success| AP
@@ -92,7 +92,7 @@ flowchart TD
     AY --> AZ
     
     AL --> BA(["END: Success"])
-    V --> BB(["END: Error"])
+    D --> BB(["END: Error"])
     Z --> BB
     AE --> BB
     AH --> BB

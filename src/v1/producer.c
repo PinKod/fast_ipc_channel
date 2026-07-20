@@ -1,9 +1,11 @@
+#include "./../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 
 static int producer(const char* shm_path, const char* file_path);
@@ -12,10 +14,12 @@ static int producer(const char* shm_path, const char* file_path);
 
 
 int main(int argc, char* argv[]) {
-    if(argc != 3) return 1;
-    
+    if(argc != 4) return 1;
+
     const char* shm_path = argv[1];
     const char* file_path = argv[2];
+    int core_id = atoi(argv[3]);
+    if(pin_current_thread(core_id) != 0) return 1;
     if(producer(shm_path, file_path) != 0) return 1;
 
     return 0;

@@ -713,6 +713,19 @@ main() {
         echo "" >&2
         echo "Prefix tool output files:" >&2
         find "$PREFIX_OUTDIR" -type f -printf '  %p\n' >&2
+
+        local perf_data_count
+        perf_data_count=$(find "$PREFIX_OUTDIR" -maxdepth 1 -name 'perf_*.data' -type f 2>/dev/null | wc -l)
+        if [[ "$perf_data_count" -gt 0 ]]; then
+            echo "" >&2
+            echo "Running perf analysis ($perf_data_count data files)..." >&2
+            if "$SCRIPT_DIR/perf_report.sh" "$PREFIX_OUTDIR" >&2; then
+                echo "  Perf report: $PREFIX_OUTDIR/perf_report/perf_index.html" >&2
+            else
+                echo "  WARNING: perf_report.sh failed — you can re-run manually:" >&2
+                echo "    $SCRIPT_DIR/perf_report.sh $PREFIX_OUTDIR" >&2
+            fi
+        fi
     fi
 }
 
