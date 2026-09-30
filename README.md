@@ -1,0 +1,1 @@
+# [Logbook of developing ipc channel](docs/LOGBOOK.md)
