@@ -1,4 +1,4 @@
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
@@ -65,8 +65,8 @@ int main(int argc, char* argv[]) {
 
 void *read_thread(void* arg) {
     producer_ctx* ctx = (producer_ctx*)arg;
-    pin_current_thread(get_current_cpu_core() + 1); 
-    
+    pin_current_thread(get_current_cpu_core() + 1);
+
     int current_buf = 0;
     while (1) {
         while (atomic_load_explicit(&ctx->buf[current_buf].state, memory_order_acquire) != BUF_STATE_EMPTY) {
@@ -74,7 +74,7 @@ void *read_thread(void* arg) {
         }
 
         ssize_t bytes_read = read(ctx->fd, ctx->buf[current_buf].data, LOCAL_BUF_SIZE);
-        
+
         if (unlikely(bytes_read <= 0)) {
             ctx->buf[current_buf].length = 0;
             atomic_store_explicit(&ctx->buf[current_buf].state, BUF_STATE_DONE, memory_order_release);
@@ -150,10 +150,10 @@ static int producer(const char* shm_path, const char* file_path) {
         if (unlikely(buf_state == BUF_STATE_DONE)) {
             break;
         }
-        
+
         size_t offset = 0;
         size_t total_length = ctx.buf[current_buf].length;
-        
+
         while (offset < total_length) {
             int spins_this_round = 0;
             while (atomic_load_explicit(&shm->state, memory_order_acquire) != STATE_EMPTY) {
@@ -179,7 +179,7 @@ static int producer(const char* shm_path, const char* file_path) {
         atomic_store_explicit(&ctx.buf[current_buf].state, BUF_STATE_EMPTY, memory_order_release);
         current_buf = 1 - current_buf;
     }
-    
+
     while (atomic_load_explicit(&shm->state, memory_order_acquire) != STATE_EMPTY) {
         cpu_relax();
     }

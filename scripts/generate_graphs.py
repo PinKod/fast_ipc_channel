@@ -10,11 +10,11 @@ import plotly.graph_objects as go
 graphs_dir = sys.argv[1]
 latest_json_path = sys.argv[2]
 json_dir = sys.argv[3]
+data_tag = sys.argv[4] if len(sys.argv) > 4 else None
 
-OUTLIER_THRESHOLD = 3.0  # version is outlier if combined_avg > 3× median of all versions
+OUTLIER_THRESHOLD = 3.0
 
 
-# ── I/O helpers ───────────────────────────────────────────────────────────────
 
 def load_json(path):
     with open(path) as fh:
@@ -22,7 +22,10 @@ def load_json(path):
 
 
 def load_all_jsons(directory):
-    pattern = os.path.join(directory, "benchmark_report_*.json")
+    if data_tag:
+        pattern = os.path.join(directory, f"benchmark_report_{data_tag}_[0-9]*.json")
+    else:
+        pattern = os.path.join(directory, "benchmark_report_*.json")
     paths = sorted(p for p in glob.glob(pattern) if "latest" not in os.path.basename(p))
     reports = []
     for p in paths:
@@ -38,13 +41,12 @@ def save(fig, html_dir, pics_dir, name):
     fig.write_image(os.path.join(pics_dir, name + ".png"), width=1400, height=700)
 
 
-# ── Version ordering / outlier detection ─────────────────────────────────────
 
 def ver_sort_key(v):
     m = re.match(r"^(c_)?v(.*)$", v)
     prefix, rest = (m.group(1) or "", m.group(2)) if m else ("", v)
     parts = re.split(r"_", rest)
-    return (prefix, [int(x) if x.isdigit() else x for x in parts])
+    return (prefix, [(0, int(x)) if x.isdigit() else (1, x) for x in parts])
 
 
 def sorted_versions(ver_list):
@@ -52,14 +54,12 @@ def sorted_versions(ver_list):
 
 
 def find_outliers(versions, combined_avgs):
-    """Return set of version names whose combined avg is > THRESHOLD × median."""
     if len(combined_avgs) < 2:
         return set()
     med = statistics.median(combined_avgs)
     return {v for v, a in zip(versions, combined_avgs) if a > OUTLIER_THRESHOLD * med}
 
 
-# ── Latest-run charts ─────────────────────────────────────────────────────────
 
 def _bar_from_vr(vr, versions, title):
     p_avgs = [vr[v]["producer_statistics"]["average_time_seconds"] for v in versions]
@@ -115,7 +115,6 @@ def make_latest_box(report, exclude=None):
     return fig
 
 
-# ── Aggregate charts ──────────────────────────────────────────────────────────
 
 def _pool(reports):
     pooled_p, pooled_c = {}, {}
@@ -129,7 +128,7 @@ def _pool(reports):
 def make_aggregate_bar(reports, exclude=None):
     pooled_p, pooled_c = _pool(reports)
     versions = sorted(
-        (v for v in pooled_p if v not in (exclude or set())),
+        (v for v in pooled_p if v not in (exclude or set()) and pooled_p[v] and pooled_c.get(v)),
         key=lambda v: sum(pooled_p[v]) / len(pooled_p[v]) + sum(pooled_c[v]) / len(pooled_c[v]),
     )
     p_avgs = [sum(pooled_p[v]) / len(pooled_p[v]) for v in versions]
@@ -180,7 +179,6 @@ def make_aggregate_trend(reports):
     return fig
 
 
-# ── index.html ────────────────────────────────────────────────────────────────
 
 def write_index(graphs_dir):
     sections = [
@@ -244,7 +242,6 @@ def write_index(graphs_dir):
         fh.write(html)
 
 
-# ── main ─────────────────────────────────────────────────────────────────────
 
 html_dir = os.path.join(graphs_dir, "html")
 pics_dir = os.path.join(graphs_dir, "pics")
@@ -254,7 +251,6 @@ os.makedirs(pics_dir, exist_ok=True)
 latest = load_json(latest_json_path)
 all_reports = load_all_jsons(json_dir)
 
-# Detect outliers for latest run
 vr = latest["version_results"]
 all_vers = list(vr.keys())
 combined_latest = [
@@ -271,7 +267,7 @@ save(make_latest_box(latest, exclude=outliers_latest), html_dir, pics_dir, "late
 
 if all_reports:
     pooled_p, pooled_c = _pool(all_reports)
-    all_vers_agg = list(pooled_p.keys())
+    all_vers_agg = [v for v in pooled_p if pooled_p[v] and pooled_c.get(v)]
     combined_agg = [
         sum(pooled_p[v]) / len(pooled_p[v]) + sum(pooled_c[v]) / len(pooled_c[v])
         for v in all_vers_agg

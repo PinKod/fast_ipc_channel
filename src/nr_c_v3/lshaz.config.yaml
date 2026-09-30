@@ -1,0 +1,10 @@
+cache_line_bytes: 64
+stack_frame_warn_bytes: 2048
+
+hot_function_patterns:
+  - "hot_*"
+
+
+
+atomic_type_names:
+ - ai32

@@ -50,4 +50,4 @@ static inline void cleanup_shm_unlink(shm_unlink_guard_t *g) {
 }
 
 
-#endif //CLEANUP_H
+#endif

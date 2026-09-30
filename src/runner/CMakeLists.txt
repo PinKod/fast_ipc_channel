@@ -2,35 +2,20 @@ cmake_minimum_required(VERSION 3.5)
 
 project(runner)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
-endif()
-
-set(MAX_OPT_FLAGS
-    -g
-    -O3
-    -march=native
-    -mtune=native
-    -flto
-    -funroll-loops
-    -ffast-math
-    -fomit-frame-pointer
-    -fno-asynchronous-unwind-tables
-    -DNDEBUG
-    -Wall
-    -Wextra
-)
-
-add_compile_options(${MAX_OPT_FLAGS})
-add_link_options(-flto -static -no-pie)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/BuildTypes.cmake NO_POLICY_SCOPE)
 
 add_executable(
     ${PROJECT_NAME}
     main.c
 )
+
+enable_lto_for_target(${PROJECT_NAME})
+enable_opt_info_for_target(${PROJECT_NAME})
 
 find_package(
     Threads REQUIRED

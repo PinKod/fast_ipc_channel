@@ -2,32 +2,15 @@ cmake_minimum_required(VERSION 3.5)
 
 project(v1)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
-endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/BuildTypes.cmake NO_POLICY_SCOPE)
 
-set(MAX_OPT_FLAGS
-    -g
-    -O3
-    -march=native
-    -mtune=native
-    -flto
-    -funroll-loops
-    -ffast-math
-    -fomit-frame-pointer
-    -fno-asynchronous-unwind-tables
-    -DNDEBUG
-    -Wall
-    -Wextra
-    -mavx2
-    -lrt
-)
-
-add_compile_options(${MAX_OPT_FLAGS})
-add_link_options(-flto -static -no-pie)
+add_compile_options(-mavx2)
+add_link_options(-lrt)
 
 add_executable(
     producer
@@ -38,6 +21,11 @@ add_executable(
     consumer
     consumer.c
 )
+
+enable_lto_for_target(producer)
+enable_lto_for_target(consumer)
+enable_opt_info_for_target(producer)
+enable_opt_info_for_target(consumer)
 
 find_package(
     Threads REQUIRED

@@ -1,5 +1,5 @@
 #define _DEFAULT_SOURCE
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 #include "cleanup.h"
 
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
     const char* shm_path = argv[1];
     const char* file_path = argv[2];
     int core_id = atoi(argv[3]);
-    
+
     if (pin_current_thread(core_id) != 0) return 1;
     if (consumer(shm_path, file_path, core_id) != 0) return 1;
 
@@ -59,7 +59,7 @@ static void fast_decompress(const uint8_t *in, size_t in_len, uint8_t *out, size
         size_t lit_len = token >> 4;
         if (lit_len == 15) {
             uint8_t l;
-            do { 
+            do {
                 l = in[ip++];
                 lit_len += l;
             } while (l == 255);
@@ -74,11 +74,11 @@ static void fast_decompress(const uint8_t *in, size_t in_len, uint8_t *out, size
 
         size_t off = in[ip] | (in[ip+1] << 8);
         ip += 2;
-        
+
         size_t match_len = (token & 15) + 4;
         if (match_len == 15 + 4) {
             uint8_t l;
-            do { 
+            do {
                 l = in[ip++];
                 match_len += l;
             } while (l == 255);
@@ -119,10 +119,10 @@ static void shm_read(shm_data *shm, int *slot, void *dst, size_t size) {
             int state;
             while ((state = atomic_load_explicit(&shm->slots[*slot].state, memory_order_acquire)) == STATE_EMPTY) cpu_relax();
             if (state == STATE_EOF) exit(0);
-            
+
             buf_len = atomic_load_explicit(&shm->slots[*slot].wr_bytes, memory_order_relaxed);
             memcpy(buf, shm->slots[*slot].data, buf_len);
-            
+
             atomic_store_explicit(&shm->slots[*slot].state, STATE_EMPTY, memory_order_release);
             *slot = 1 - *slot;
             buf_pos = 0;
@@ -151,7 +151,7 @@ void* decompress_worker(void* arg) {
 
 void* write_worker(void* arg) {
     int fd = *(int*)arg;
-    
+
     for (uint32_t i = 0; i < num_chunks; i++) {
         while (atomic_load_explicit(&chunks[i].state, memory_order_acquire) != 2) cpu_relax();
 
@@ -171,7 +171,7 @@ static int consumer(const char* shm_path, const char* file_path, int core_id) {
     int fd __attribute__((cleanup(cleanup_fd))) = -1;
     int shm_fd __attribute__((cleanup(cleanup_fd))) = -1;
     mmap_region_t shm_map __attribute__((cleanup(cleanup_mmap_region))) = {
-        NULL, 
+        NULL,
         0
     };
     global_ptr_guard_t chunks_guard __attribute__((cleanup(cleanup_global_ptr))) = {
@@ -198,7 +198,7 @@ static int consumer(const char* shm_path, const char* file_path, int core_id) {
         }
         usleep(100);
     }
-    
+
     shm_map.ptr = (shm_data *)mmap(NULL, sizeof(shm_data), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shm_map.ptr == MAP_FAILED) {
         return 1;
@@ -209,7 +209,7 @@ static int consumer(const char* shm_path, const char* file_path, int core_id) {
     unlink_guard.path = shm_path;
 
     shm_read(shm, &slot, &num_chunks, sizeof(num_chunks));
-    
+
     chunks = (chunk*)calloc(num_chunks ? num_chunks : 1, sizeof(chunk));
     if (!chunks) {
         return 1;
@@ -262,7 +262,7 @@ static int out_file(char* output_file_buffer, const char* file_path) {
     }
     int len = ext - file_path;
     int ret = snprintf(output_file_buffer, OUTPUT_FILE_PATH_SIZE, "%.*s_output%s", len, file_path, ext);
-    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1; 
+    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1;
 
     return 0;
 }

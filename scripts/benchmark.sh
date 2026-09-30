@@ -1,32 +1,28 @@
 #!/bin/bash
 set -euo pipefail
 
-# Usage: benchmark.sh [version...]              run all (or listed) versions normally
-#        benchmark.sh -p [version...]           open a menu to wrap producer/consumer
-#                                                of specific versions with a prefix
-#                                                command (valgrind/gdb/perf/...) taken
-#                                                from prefixes.conf. Any version with a
-#                                                prefix assigned runs only 1 iteration
-#                                                instead of the normal RUNS, since the
-#                                                measured time then includes wrapper
-#                                                overhead and isn't comparable.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+[[ -f "$BASE_DIR/tools/env.sh" ]] && source "$BASE_DIR/tools/env.sh"
+
 SRC_DIR="$BASE_DIR/src"
 RUNNER_BUILD="$SRC_DIR/runner/build"
-DATA_FILE="$BASE_DIR/data/big_output.bin"
+DATA_FILE="${DATA_FILE:-$BASE_DIR/data/big_output.bin}"
+DATA_TAG="$(basename "$DATA_FILE" | sed 's/\.[^.]*$//')"
 RUNNER="$RUNNER_BUILD/runner"
-CORES="0,2"
-SHM_NAME="abc"
-RUNS=10
+CORES="0,4"
+SHM_NAME="bench_$$"
+RUNS="${RUNS:-10}"
+RUN_TIMEOUT="${RUN_TIMEOUT:-120}"
 
 TIMESTAMP="$(date '+%Y-%m-%d_%H-%M-%S')"
 REPORTS_DIR="$BASE_DIR/reports"
 REPORTS_JSON_DIR="$REPORTS_DIR/json"
-REPORT_TXT="$REPORTS_DIR/benchmark_report_${TIMESTAMP}.txt"
-REPORT_JSON="$REPORTS_JSON_DIR/benchmark_report_${TIMESTAMP}.json"
-REPORT_OVERVIEW="$REPORTS_DIR/report_overview.txt"
+REPORT_TXT="$REPORTS_DIR/benchmark_report_${DATA_TAG}_${TIMESTAMP}.txt"
+REPORT_JSON="$REPORTS_JSON_DIR/benchmark_report_${DATA_TAG}_${TIMESTAMP}.json"
+REPORT_OVERVIEW="$REPORTS_DIR/report_overview_${DATA_TAG}.txt"
 PREFIX_OUTDIR="$REPORTS_DIR/prefix_output/$TIMESTAMP"
 
 VENV_DIR="$SCRIPT_DIR/venv"
@@ -54,6 +50,7 @@ detect_versions() {
     for d in "$SRC_DIR"/v*/ "$SRC_DIR"/c_v*/; do
         local vname
         vname="$(basename "$d")"
+        [[ "$vname" == nr_* ]] && continue
         if [[ -f "$d/build/producer" && -f "$d/build/consumer" ]]; then
             versions+=("$vname")
         fi
@@ -175,7 +172,7 @@ get_file_size() {
 
 compute_stats() {
     local file="$1"
-    awk '
+    sort -n "$file" | awk '
     BEGIN { min=999999; max=0; sum=0; n=0 }
     {
         vals[NR] = $1
@@ -187,7 +184,6 @@ compute_stats() {
     END {
         if (n == 0) { print "0 0 0 0 0"; exit }
         avg = sum / n
-        asort(vals)
         if (n % 2 == 1) {
             median = vals[int(n/2) + 1]
         } else {
@@ -195,7 +191,7 @@ compute_stats() {
         }
         printf "%.6f %.6f %.6f %.6f %d", min, max, avg, median, n
     }
-    ' "$file"
+    '
 }
 
 run_version() {
@@ -204,6 +200,9 @@ run_version() {
     local consumer="$SRC_DIR/$version/build/consumer"
     local vdir="$TMPDIR_WORK/$version"
     mkdir -p "$vdir"
+    : > "$vdir/producer_times.txt"
+    : > "$vdir/cons_times.txt"
+    : > "$vdir/identical.txt"
 
     local prod_prefix cons_prefix
     prod_prefix="$(resolve_prefix "${PROD_PREFIX[$version]:-}" "$version" "producer")"
@@ -224,13 +223,23 @@ run_version() {
     fi
 
     for (( i=1; i<=runs_this_version; i++ )); do
-        local output
-        output=$("$RUNNER" "$DATA_FILE" "${prod_prefix_arr[@]}" "$producer" \
-                 "${cons_prefix_arr[@]}" "$consumer" "$CORES" "$SHM_NAME" 2>&1) || true
+        local run_shm="${SHM_NAME}_${version}_${i}"
+        local output rc=0
+        output=$(timeout --signal=KILL "${RUN_TIMEOUT}s" \
+                 "$RUNNER" "$DATA_FILE" "${prod_prefix_arr[@]}" "$producer" \
+                 "${cons_prefix_arr[@]}" "$consumer" "$CORES" "$run_shm" 2>&1) || rc=$?
+
+        if [[ "$rc" -eq 137 || "$rc" -eq 124 ]]; then
+            echo "  WARNING: [$version] run $i/$runs_this_version timed out after ${RUN_TIMEOUT}s - killing and skipping" >&2
+            pkill -KILL -f "$producer " 2>/dev/null || true
+            pkill -KILL -f "$consumer " 2>/dev/null || true
+            rm -f "/dev/shm/$run_shm" 2>/dev/null || true
+            continue
+        fi
 
         local prod_time cons_time identical
-        prod_time=$(echo "$output" | grep -oP '\S+\s+\(Core\s+\d+\)\s+time:\s+\K[0-9]+\.[0-9]+' | head -1)
-        cons_time=$(echo "$output" | grep -oP '\S+\s+\(Core\s+\d+\)\s+time:\s+\K[0-9]+\.[0-9]+' | tail -1)
+        prod_time=$(echo "$output" | grep -oP '\S+\s+\(Core\s+\d+\)\s+time:\s+\K[0-9]+\.[0-9]+' | head -1) || true
+        cons_time=$(echo "$output" | grep -oP '\S+\s+\(Core\s+\d+\)\s+time:\s+\K[0-9]+\.[0-9]+' | tail -1) || true
 
         if echo "$output" | grep -q "Files are IDENTICAL"; then
             identical="1"
@@ -600,14 +609,7 @@ generate_json() {
 }
 
 setup_venv() {
-    if [[ ! -x "$PYTHON" ]] || ! "$PYTHON" -c "import plotly, pandas, kaleido" &>/dev/null; then
-        echo "Setting up Python virtual environment at $VENV_DIR ..." >&2
-        [[ -x "$PYTHON" ]] || python3 -m venv "$VENV_DIR"
-        if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
-            "$VENV_DIR/bin/pip" install -q --timeout 300 --retries 5 -r "$SCRIPT_DIR/requirements.txt"
-        fi
-        echo "Virtual environment ready." >&2
-    fi
+    "$SCRIPT_DIR/setup_venv.sh"
 }
 
 generate_report_overview() {
@@ -617,7 +619,7 @@ generate_report_overview() {
     local all_json_files=()
     while IFS= read -r f; do
         all_json_files+=("$f")
-    done < <(find "$json_dir" -name 'benchmark_report_*.json' ! -name '*latest*' -type f | sort)
+    done < <(find "$json_dir" -name "benchmark_report_${DATA_TAG}_[0-9]*.json" ! -name '*latest*' -type f | sort)
 
     if [[ ${#all_json_files[@]} -eq 0 ]]; then
         echo "No JSON reports found in $json_dir — skipping overview" >&2
@@ -693,19 +695,28 @@ main() {
 
     cp "$REPORT_TXT" "$REPORTS_DIR/benchmark_report_latest.txt"
     cp "$REPORT_JSON" "$REPORTS_JSON_DIR/benchmark_report_latest.json"
+    cp "$REPORT_TXT" "$REPORTS_DIR/benchmark_report_latest_${DATA_TAG}.txt"
+    cp "$REPORT_JSON" "$REPORTS_JSON_DIR/benchmark_report_latest_${DATA_TAG}.json"
 
     generate_report_overview "$REPORTS_JSON_DIR" "$REPORT_OVERVIEW"
 
-    local graphs_dir="$REPORTS_DIR/graphs"
+    local graphs_dir
+    if [[ "$DATA_TAG" == "big_output" ]]; then
+        graphs_dir="$REPORTS_DIR/graphs"
+    else
+        graphs_dir="$REPORTS_DIR/graphs_${DATA_TAG}"
+    fi
     mkdir -p "$graphs_dir"
     "$PYTHON" "$SCRIPT_DIR/generate_graphs.py" \
-        "$graphs_dir" "$REPORT_JSON" "$REPORTS_JSON_DIR"
+        "$graphs_dir" "$REPORT_JSON" "$REPORTS_JSON_DIR" "$DATA_TAG"
 
     echo "" >&2
     echo "Report saved to:      $REPORT_TXT" >&2
     echo "JSON saved to:        $REPORT_JSON" >&2
     echo "Latest txt:           $REPORTS_DIR/benchmark_report_latest.txt" >&2
     echo "Latest json:          $REPORTS_JSON_DIR/benchmark_report_latest.json" >&2
+    echo "Latest txt (tagged):  $REPORTS_DIR/benchmark_report_latest_${DATA_TAG}.txt" >&2
+    echo "Latest json (tagged): $REPORTS_JSON_DIR/benchmark_report_latest_${DATA_TAG}.json" >&2
     echo "Report overview:      $REPORT_OVERVIEW" >&2
     echo "Graphs saved to:      $graphs_dir" >&2
 

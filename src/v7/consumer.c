@@ -1,4 +1,4 @@
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
@@ -41,6 +41,7 @@ typedef struct {
 typedef struct {
     buffer_ctx buf[BUFFER_NUM];
     int fd;
+    _Atomic int writer_ready;
 } thread_ctx;
 
 
@@ -70,6 +71,8 @@ int main(int argc, char* argv[]) {
 void* write_thread(void* arg) {
     thread_ctx* ctx = (thread_ctx*)arg;
     pin_current_thread(get_current_cpu_core() + 1);
+    unfair_sched();
+    atomic_store_explicit(&ctx->writer_ready, 1, memory_order_release);
     int current_buf = 0;
     while(1) {
         int state;
@@ -92,7 +95,7 @@ void* write_thread(void* arg) {
         }
 
         atomic_store_explicit(&ctx->buf[current_buf].state, BUF_STATE_EMPTY, memory_order_release);
-        current_buf = 1 - current_buf; 
+        current_buf = 1 - current_buf;
     }
 
     return NULL;
@@ -107,7 +110,7 @@ static int out_file(char* output_file_buffer, const char* file_path) {
     }
     int len = ext - file_path;
     int ret = snprintf(output_file_buffer, OUTPUT_FILE_PATH_SIZE, "%.*s_output%s", len, file_path, ext);
-    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1; 
+    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1;
 
     return 0;
 
@@ -137,6 +140,7 @@ static int consumer(const char* shm_path, const char* file_path) {
 
     thread_ctx ctx;
     ctx.fd = fd;
+    atomic_init(&ctx.writer_ready, 0);
     for (int i = 0; i < BUFFER_NUM; i++) {
         ctx.buf[i].data = (char *)malloc(LOCAL_BUF_SIZE);
         atomic_init(&ctx.buf[i].state, BUF_STATE_EMPTY);
@@ -144,6 +148,10 @@ static int consumer(const char* shm_path, const char* file_path) {
     pthread_t writer_tid;
     pthread_create(&writer_tid, NULL, write_thread, &ctx);
 
+    while (!atomic_load_explicit(&ctx.writer_ready, memory_order_acquire)) {
+        cpu_relax();
+    }
+    unfair_sched();
 
     size_t buffer_offset = 0;
     int state;
@@ -171,7 +179,7 @@ static int consumer(const char* shm_path, const char* file_path) {
         if(buffer_offset + SHM_DATA_SIZE > LOCAL_BUF_SIZE) {
             ctx.buf[current_buf].length = buffer_offset;
             atomic_store_explicit(&ctx.buf[current_buf].state, BUF_STATE_FULL, memory_order_release);
-            
+
             current_buf = 1 - current_buf;
             buffer_offset = 0;
 

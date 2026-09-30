@@ -1,5 +1,5 @@
 #define _DEFAULT_SOURCE
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
 
 
 static int producer(const char* shm_path, const char* file_path) {
+    unfair_sched();
     int fd = open(file_path, O_RDONLY);
     if(fd == -1) return 1;
 

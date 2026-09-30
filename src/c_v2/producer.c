@@ -1,5 +1,5 @@
 #define _DEFAULT_SOURCE
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 #include "cleanup.h"
 
@@ -28,8 +28,8 @@
 #define _32KB (32u * 1024u)
 static_assert(HASH_SIZE <= _32KB, "need to fit to l1 size");
 
-static inline uint32_t hash32(uint32_t a) { 
-    return (a * 0x9E3779B1) >> (32 - HASH_LOG); 
+static inline uint32_t hash32(uint32_t a) {
+    return (a * 0x9E3779B1) >> (32 - HASH_LOG);
 }
 
 chunk *chunks;
@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
     const char* shm_path = argv[1];
     const char* file_path = argv[2];
     int core_id = atoi(argv[3]);
-    
+
     if (pin_current_thread(core_id) != 0) return 1;
     if (producer(shm_path, file_path, core_id) != 0) return 1;
 
@@ -59,21 +59,21 @@ int main(int argc, char* argv[]) {
 static int producer(const char* shm_path, const char* file_path, int core_id) {
     int fd __attribute__((cleanup(cleanup_fd))) = -1;
     mmap_region_t file_map __attribute__((cleanup(cleanup_mmap_region))) = {
-        NULL, 
+        NULL,
         0
     };
     int shm_fd   __attribute__((cleanup(cleanup_fd)))          = -1;
     mmap_region_t shm_map  __attribute__((cleanup(cleanup_mmap_region))) = {NULL, 0};
     global_ptr_guard_t chunks_guard
                      __attribute__((cleanup(cleanup_global_ptr)))         = {NULL};
-    
-    
-    
+
+
+
     fd = open(file_path, O_RDONLY);
     if (fd < 0) {
         return 1;
     }
-    
+
     struct stat st;
     if (fstat(fd, &st) < 0) {
         return 1;
@@ -94,12 +94,12 @@ static int producer(const char* shm_path, const char* file_path, int core_id) {
         return 1;
     }
     ftruncate(shm_fd, sizeof(shm_data));
-    
+
     shm_map.ptr = (shm_data*)mmap(NULL, sizeof(shm_data), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shm_map.ptr == MAP_FAILED) {
         return 1;
     }
-    
+
     shm_data *shm = (shm_data *)shm_map.ptr;
     atomic_init(&shm->slots[0].state, STATE_EMPTY);
     atomic_init(&shm->slots[1].state, STATE_EMPTY);
@@ -137,14 +137,14 @@ static int producer(const char* shm_path, const char* file_path, int core_id) {
         while (atomic_load_explicit(&chunks[i].state, memory_order_acquire) == 0) {
             cpu_relax();
         }
-        
+
         uint32_t cs = chunks[i].out_len;
         uint32_t us = chunks[i].in_len;
-        
+
         shm_write(shm, &current_slot, &cs, sizeof(cs));
         shm_write(shm, &current_slot, &us, sizeof(us));
         shm_write(shm, &current_slot, chunks[i].out_data, cs);
-        
+
         free(chunks[i].out_data);
         chunks[i].out_data = NULL;
     }
@@ -152,7 +152,7 @@ static int producer(const char* shm_path, const char* file_path, int core_id) {
     for (int i = 0; i < NUM_WORKERS; i++) {
         pthread_join(tids[i], NULL);
     }
-    
+
     while (atomic_load_explicit(&shm->slots[current_slot].state, memory_order_acquire) != STATE_EMPTY) {
         cpu_relax();
     }
@@ -214,7 +214,7 @@ static size_t fast_compress(const uint8_t *in, size_t in_len, uint8_t *out) {
                 }
             }
 
-            *(uint16_t*)(out + op) = (uint16_t)(ip - ref); 
+            *(uint16_t*)(out + op) = (uint16_t)(ip - ref);
             op += 2;
 
             size_t ml = match_len - 4;
@@ -253,7 +253,7 @@ void* compress_worker(void* arg) {
     int core = a[0];
     int id   = a[1];
     pin_current_thread(core);
-    
+
      for (uint32_t i = (uint32_t)id; i < num_chunks; i += NUM_WORKERS) {
         chunks[i].out_len = fast_compress(chunks[i].in_data, chunks[i].in_len, chunks[i].out_data);
         atomic_store_explicit(&chunks[i].state, 1, memory_order_release);
@@ -266,14 +266,14 @@ static void shm_write(shm_data *shm, int *slot, const void *data, size_t size) {
     const char *ptr = (const char *)data;
     while (offset < size) {
         while (atomic_load_explicit(&shm->slots[*slot].state, memory_order_acquire) != STATE_EMPTY) cpu_relax();
-        
+
         size_t chunk = size - offset;
         if (chunk > SHM_DATA_SIZE) chunk = SHM_DATA_SIZE;
-        
+
         memcpy(shm->slots[*slot].data, ptr + offset, chunk);
         atomic_store_explicit(&shm->slots[*slot].wr_bytes, chunk, memory_order_relaxed);
         atomic_store_explicit(&shm->slots[*slot].state, STATE_FULL, memory_order_release);
-        
+
         offset += chunk;
         *slot = 1 - *slot;
     }

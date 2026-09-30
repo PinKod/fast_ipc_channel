@@ -1,5 +1,4 @@
-
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
@@ -40,7 +39,7 @@ static int out_file(char* output_file_buffer, const char* file_path) {
     }
     int len = ext - file_path;
     int ret = snprintf(output_file_buffer, OUTPUT_FILE_PATH_SIZE, "%.*s_output%s", len, file_path, ext);
-    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1; 
+    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1;
 
     return 0;
 
@@ -71,7 +70,7 @@ static int consumer(const char* shm_path, const char* file_path) {
     while (1) {
         while (atomic_load(&shm->state) == STATE_EMPTY) {
         }
-        
+
         int state = atomic_load(&shm->state);
         if(state == STATE_EOF) {
             break;
@@ -90,7 +89,7 @@ static int consumer(const char* shm_path, const char* file_path) {
         }
         atomic_store(&shm->state, STATE_EMPTY);
     }
-    
+
     atomic_store(&shm->state, STATE_EOF);
     close(fd);
     close(shm_fd);

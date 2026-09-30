@@ -38,4 +38,4 @@ typedef struct {
 } __attribute__((aligned(64))) chunk;
 
 
-#endif //SHM_H
+#endif

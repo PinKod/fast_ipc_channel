@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <math.h>
+#include "../../include/cpu_utils.h"
 
 #define ARGV_NUM 6
 #define PROD "producer"
@@ -44,6 +45,10 @@ int main(int argc, char* argv[]) {
     if(validate_args(argc, argv) != 0) {
         fprintf(stderr, "invalid args\n");
         return 1;
+    }
+    long last_cpu = sysconf(_SC_NPROCESSORS_CONF) - 1;
+    if (last_cpu >= 0 && pin_current_thread((int)last_cpu) != 0) {
+        perror("Notice: could not pin runner to last CPU");
     }
     if(spanw_procs(argv) != 0) return 1;
     char out_path[512];
@@ -90,9 +95,9 @@ static void* run_proc(void* arg) {
     }
 
     clock_gettime(CLOCK_MONOTONIC, &end);
-    args->elapsed_time = (end.tv_sec - start.tv_sec) + 
+    args->elapsed_time = (end.tv_sec - start.tv_sec) +
                          (end.tv_nsec - start.tv_nsec) / 1000000000.0;
-    printf("[Core %d] %s completed in %.6f seconds\n", 
+    printf("[Core %d] %s completed in %.6f seconds\n",
            args->core_id, args->prog_path, args->elapsed_time);
     return NULL;
 }
@@ -185,7 +190,7 @@ static int validate_args(int argc, char* argv[]) {
 
 static int check_exec(char* path, char* substr) {
     struct stat st;
-    
+
     if(stat(path, &st) != 0) return 1;
     if(!S_ISREG(st.st_mode)) return 1;
     if(access(path, X_OK) != 0) return 1;
@@ -285,7 +290,7 @@ size_t read_floats(const char* path, float** data) {
         }
     }
     fclose(f);
-    
+
     if (count == 0) {
         f = fopen(path, "rb");
         if (!f) return 0;
@@ -353,7 +358,7 @@ void calculate_metrics(const char* orig_path, const char* out_path) {
     printf("Mean of original data:       %f\n", mean_orig);
     printf("Mean Absolute Deviation: %e\n", mean_diff);
     printf("Median Absolute Deviation: %e\n", median_diff);
-    
+
     free(orig_data);
     free(out_data);
     free(abs_diffs);

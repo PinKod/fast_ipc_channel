@@ -1,4 +1,4 @@
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 #include "intrics.h"
 
@@ -93,7 +93,7 @@ void* write_thread(void* arg) {
         }
 
         atomic_store_explicit(&ctx->buf[current_buf].state, BUF_STATE_EMPTY, memory_order_release);
-        current_buf = 1 - current_buf; 
+        current_buf = 1 - current_buf;
     }
 
     return NULL;
@@ -108,7 +108,7 @@ static int out_file(char* output_file_buffer, const char* file_path) {
     }
     int len = ext - file_path;
     int ret = snprintf(output_file_buffer, OUTPUT_FILE_PATH_SIZE, "%.*s_output%s", len, file_path, ext);
-    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1; 
+    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1;
 
     return 0;
 
@@ -172,7 +172,7 @@ static int consumer(const char* shm_path, const char* file_path) {
         if(buffer_offset + SHM_DATA_SIZE > LOCAL_BUF_SIZE) {
             ctx.buf[current_buf].length = buffer_offset;
             atomic_store_explicit(&ctx.buf[current_buf].state, BUF_STATE_FULL, memory_order_release);
-            
+
             current_buf = 1 - current_buf;
             buffer_offset = 0;
 

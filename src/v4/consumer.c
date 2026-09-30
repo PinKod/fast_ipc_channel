@@ -1,4 +1,4 @@
-#include "./../include/cpu_utils.h"
+#include "./../../include/cpu_utils.h"
 #include "shm.h"
 
 #include <stdio.h>
@@ -54,7 +54,7 @@ static int out_file(char* output_file_buffer, const char* file_path) {
     }
     int len = ext - file_path;
     int ret = snprintf(output_file_buffer, OUTPUT_FILE_PATH_SIZE, "%.*s_output%s", len, file_path, ext);
-    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1; 
+    if (ret < 0 || ret >= OUTPUT_FILE_PATH_SIZE) return 1;
 
     return 0;
 
@@ -88,7 +88,7 @@ static int consumer(const char* shm_path, const char* file_path) {
             munmap(shm, sizeof(shm_data));
             close(fd);
             close(shm_fd);
-            return 1; 
+            return 1;
         }
         cpu_relax();
     }
@@ -111,7 +111,7 @@ static int consumer(const char* shm_path, const char* file_path) {
             return 1;
         }
     }
-    
+
     atomic_store_explicit(&shm->state, STATE_EMPTY, memory_order_release);
     size_t buffer_offset = 0;
     while (1) {

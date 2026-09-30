@@ -14,11 +14,11 @@ typedef _Atomic(int32_t) ai32;
 
 typedef struct {
     ai32 state;
-    ai32 wr_bytes;    
+    ai32 wr_bytes;
     char data[SHM_SIZE - sizeof(ai32) * 2];
 } shm_data;
 static_assert(sizeof(shm_data) >= SHM_SIZE, "shm memory data struct is bigger than max size");
 
 #define SHM_DATA_SIZE SHM_SIZE - sizeof(ai32) * 2
 
-#endif //SHM_H
+#endif

@@ -1,0 +1,96 @@
+PERF REPORT & GRAPH GENERATION — EXPLANATION
+===============================================
+
+1. HOW perf_report.sh GENERATES THE PERF REPORT
+-------------------------------------------------
+
+Entry point: benchmark.sh -p lets users wrap producer/consumer with "perf record -g"
+(defined in prefixes.conf). After benchmarks finish, benchmark.sh calls
+perf_report.sh "$PREFIX_OUTDIR" (line 722).
+
+Processing loop (perf_report.sh lines 150-199) — for each perf_*.data file:
+
+  a) Parse filename → extract version and role
+     (e.g. perf_c_v3_producer.data → version=c_v3, role=producer)
+
+  b) ASCII report → runs:
+       perf report -i <data_file> --stdio --no-children --sort=dso,symbol -n
+     An awk regex extracts: % | samples | DSO | symbol
+     Results are formatted into a table and appended to perf_report.txt.
+
+  c) Plot data → same parsed rows are tab-separated into .plot_data.tsv
+     (columns: function, overhead_pct, samples, dso, role, version).
+
+  d) Flame graph → pipes "perf script" output through:
+       stackcollapse-perf.pl (collapses stack traces)
+       → flamegraph.pl (renders SVG)
+     Output: flamegraphs/<version>_<role>_flame.svg
+
+  e) Icicle chart → same pipeline but with --inverted flag
+     Output: flamegraphs/<version>_<role>_icicle.svg
+
+  f) perf stat logs → if perf_stat_*.log files exist, appends counter
+     output to the ASCII report.
+
+  g) Plotly bar charts → calls perf_graphs.py with the TSV data.
+
+  h) HTML index → generate_html_index() produces perf_index.html:
+     - Dark-themed dashboard (GitHub-dark style)
+     - Embeds flame graph SVGs and icicle SVGs
+     - Shows bar chart PNGs (clickable to interactive HTML)
+     - Collapsible <pre> block with the full ASCII report
+
+
+2. HOW THE GRAPH IS CREATED (perf_graphs.py)
+---------------------------------------------
+
+Reads .plot_data.tsv, groups rows by role (producer / consumer).
+For each role:
+
+  - Sorts functions by overhead descending, takes top 20
+  - Creates a horizontal bar chart using Plotly:
+      x-axis:  CPU Cycles (%)  — the overhead percentage
+      y-axis:  function names (reversed so highest CPU is at top)
+      labels:  "%.1f%%" displayed outside each bar
+      hover:   symbol | percentage (samples) | DSO
+      style:   dark theme (plotly_dark, #0d1117 background)
+  - Output: cpu_time_<role>.html (interactive) + cpu_time_<role>.png (static)
+
+If both producer and consumer data exist, a combined subplot is created
+(1 row, 2 cols) with different colors per role:
+  #58a6ff (blue)  → producer
+  #3fb950 (green) → consumer
+
+
+3. OVERALL LAYOUT / ARCHITECTURE
+---------------------------------
+
+scripts/
+  perf_report.sh          main perf report orchestrator (bash)
+  perf_graphs.py           Plotly bar chart generator (Python)
+  prefixes.conf            prefix tool definitions (perf-record, valgrind, etc.)
+  benchmark.sh             benchmark runner that triggers perf_report.sh
+  generate_graphs.py       separate benchmark timing graphs (not perf-related)
+  generate_overview.py     cross-run text overview from JSON reports
+
+reports/
+  prefix_output/
+    <timestamp>/
+      perf_{v}_{role}.data        raw perf recordings
+      perf_stat_{v}_{role}.log    perf stat counters
+      perf_report/
+        perf_report.txt            ASCII top-20 table
+        .plot_data.tsv             intermediate data for perf_graphs.py
+        flamegraphs/
+          {v}_{role}_flame.svg     Flame Graph SVG
+          {v}_{role}_icicle.svg    Icicle Chart SVG
+        perf_graphs/
+          cpu_time_{role}.html     interactive bar chart
+          cpu_time_{role}.png      static bar chart
+          cpu_time_combined.html   side-by-side chart (both roles)
+        perf_index.html            full HTML dashboard
+
+KEY: perf_report.sh is invoked FROM benchmark.sh (line 722), only when
+perf_*.data files exist from a -p run. The generate_graphs.py is a SEPARATE
+system — it reads benchmark_report_*.json (timing data) to produce bar/box/trend
+charts of execution time, not CPU profiling.

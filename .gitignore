@@ -4,3 +4,7 @@ scripts/venv/
 reports/graphs/
 reports/
 .cache*
+tools/
+data/abg_big.bin
+data/bg_big.bin
+data/bg2_big.bin
