@@ -6,8 +6,48 @@ Thoughts and log of them from v1 to c_v22_3
 - new vesrion number kinda big change
 - version with additonal number, for example `v7_2` or `v7_3` more evoltuion, then changing(small tunning) 
 - no prefix working version with no compression
-- prefix `nr_` - broken version no need to tests(for example live lock)
+- prefix `nr_` - version excluded from auto beancmark run (for example - broken) version no need to tests(for example live lock)
 - prefix  `c_` - version with compression
+
+### My hardware specs
+cpu with hypertrading enabled
+- 4 perfomance cores
+- 4 economy cores
+```
+pin-by-kod@pin-by-kod-14-IPK4-T54E4WO:~/apply_tasks/task$ lstopo --of console
+Machine (15GB total)
+  Package L#0
+    NUMANode L#0 (P#0 15GB)
+    L3 L#0 (18MB)
+      L2 L#0 (1280KB) + L1d L#0 (48KB) + L1i L#0 (32KB) + Core L#0
+        PU L#0 (P#0)
+        PU L#1 (P#1)
+      L2 L#1 (1280KB) + L1d L#1 (48KB) + L1i L#1 (32KB) + Core L#1
+        PU L#2 (P#2)
+        PU L#3 (P#3)
+      L2 L#2 (1280KB) + L1d L#2 (48KB) + L1i L#2 (32KB) + Core L#2
+        PU L#4 (P#4)
+        PU L#5 (P#5)
+      L2 L#3 (1280KB) + L1d L#3 (48KB) + L1i L#3 (32KB) + Core L#3
+        PU L#6 (P#6)
+        PU L#7 (P#7)
+      L2 L#4 (2048KB)
+        L1d L#4 (32KB) + L1i L#4 (64KB) + Core L#4 + PU L#8 (P#8)
+        L1d L#5 (32KB) + L1i L#5 (64KB) + Core L#5 + PU L#9 (P#9)
+        L1d L#6 (32KB) + L1i L#6 (64KB) + Core L#6 + PU L#10 (P#10)
+        L1d L#7 (32KB) + L1i L#7 (64KB) + Core L#7 + PU L#11 (P#11)
+      L2 L#5 (2048KB)
+        L1d L#8 (32KB) + L1i L#8 (64KB) + Core L#8 + PU L#12 (P#12)
+        L1d L#9 (32KB) + L1i L#9 (64KB) + Core L#9 + PU L#13 (P#13)
+        L1d L#10 (32KB) + L1i L#10 (64KB) + Core L#10 + PU L#14 (P#14)
+        L1d L#11 (32KB) + L1i L#11 (64KB) + Core L#11 + PU L#15 (P#15)
+```
+### env
+- all tests are done on ubuntu on perfance mode. no change betwen tests.
+- didnt isolated the cores on grub, didnt want to do this for task, so it is 100% theat kernel treads and over user space procces gave some noisy to benchmarks(but tryed to minimize this as much as possible)
+- test done from first version till last with the max optmization possible - check out [cmake build types](../cmake/BuildTypes.cmake).
+
+
 
 ## 0) v1-v8
 
